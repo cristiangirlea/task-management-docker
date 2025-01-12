@@ -1,0 +1,12 @@
+# Ignore current folders until becomes focus. //todo: do submodules with the correct foldername
+task-management-app
+nodejs-backend
+next-frontend
+
+# Common ignores
+**/node_modules
+**/vendor
+.env
+.vscode/
+.idea/
+docker_logs
