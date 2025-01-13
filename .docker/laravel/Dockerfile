@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
 # Set the working directory
 WORKDIR /var/www/html
 
-# Copy the full Laravel application first
+# Copy the full Laravel application
 COPY . /var/www/html/
 
 # Install Composer globally
@@ -23,8 +23,12 @@ RUN composer install --no-dev --optimize-autoloader
 # Set permissions for storage and bootstrap cache
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 
+# Copy the entrypoint script and set permissions
+COPY ./entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 # Expose the PHP-FPM port
 EXPOSE 8000
 
-# Start PHP-FPM
-CMD ["php-fpm"]
+# Use entrypoint script to handle migrations and PHP-FPM start
+CMD ["/usr/local/bin/entrypoint.sh"]

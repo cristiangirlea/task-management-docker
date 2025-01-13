@@ -1,28 +1,17 @@
-# Base image for building the app
-FROM node:22 AS builder
+FROM node:22
 
-# Set working directory inside the container
 WORKDIR /usr/src/app
 
 # Copy package.json and install dependencies
 COPY package*.json ./
+
 RUN npm install
 
-# Copy the entire app
-COPY . .
+# Copy the rest of the app
+COPY . ./
 
-# Build the Next.js app
-RUN npm run build
-
-# Base image for serving the app
-FROM node:22
-
-# Copy the built app from the builder
-WORKDIR /usr/src/app
-COPY --from=builder /usr/src/app ./
-
-# Expose port 3000 for Next.js
+# Expose the development port (3000 by default)
 EXPOSE 3000
 
-# Start the app
-CMD ["npm", "run", "start"]
+# Run the frontend in development mode
+CMD ["npm", "run", "dev"]
