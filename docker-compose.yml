@@ -85,8 +85,9 @@ services:
     networks:
       - app_network
     depends_on:
-      - app  # Ensure NGINX waits until the Laravel container is up
-
+      - app # Ensure NGINX waits until the Laravel container is up
+      - node # Ensure NGINX waits until the Express container is up
+      - react # Ensure NGINX waits until the React container is up
 networks:
   app_network:
     driver: bridge
