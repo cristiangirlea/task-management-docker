@@ -1,96 +1,101 @@
+# Development stack for the task management app.
+#
+#   browser ──> nginx :${NGINX_PORT}
+#                 ├── /api/*, /mcp, /up ──> app (Laravel, php-fpm :9000) ──> postgres, redis
+#                 └── everything else  ──> web (Next.js dev server :3000)
+#
+# The Laravel and Next.js repos are expected next to this one (see .env.example:
+# LARAVEL_CONTEXT / NEXT_CONTEXT). Both are bind-mounted for live editing.
+#
+# Compose resolves `dockerfile:` relative to the build context, i.e. relative
+# to the app repo, so the Dockerfiles kept in this repo are reached through
+# ${STACK_DIR} (the path of this directory as seen from the app repos).
+
+name: ${PROJECT_NAME:-task_management}
+
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:?DB_DATABASE is not set (copy .env.example to .env)}
+      POSTGRES_USER: ${DB_USERNAME:?DB_USERNAME is not set (copy .env.example to .env)}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is not set (copy .env.example to .env)}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   redis:
-    container_name: "${REDIS_CONTAINER_NAME}_${BUILD_NUMBER}"
-    build:
-      context: ".docker/redis"   # Point to the redis context folder
-      dockerfile: "Dockerfile"
-    ports:
-      - "${REDIS_PORT}:6379"
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is not set (copy .env.example to .env)}"]
+    environment:
+      # Lets the healthcheck's redis-cli authenticate without putting the
+      # password on the command line.
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
-    networks:
-      - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
-  mariadb:
-    image: mariadb:latest
-    environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-      MYSQL_DATABASE: ${DB_DATABASE}
-      MYSQL_USER: ${DB_USERNAME}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "${DB_PORT}:3306"
-    networks:
-      - app_network
-
+  # Laravel API, served by php-fpm. Reachable only from nginx (port 9000 is not
+  # published on the host).
   app:
-    container_name: "${LARAVEL_CONTAINER_NAME}_${BUILD_NUMBER}"
     build:
-      context: "./task-management-app"  # Context for the Laravel app files
-      dockerfile: "../.docker/laravel/Dockerfile"  # Point to the external Dockerfile
-    env_file:
-      - .env
+      context: ${LARAVEL_CONTEXT:-../task-management-app}
+      dockerfile: ${STACK_DIR:-../task-management-docker}/.docker/laravel/Dockerfile
+    env_file: .env
     volumes:
-      - ./task-management-app:/var/www/html
-    ports:
-      - "${LARAVEL_PORT}:9000"
-    networks:
-      - app_network
+      # Live code. This hides the vendor/ directory baked into the image, so
+      # docker-entrypoint.sh (below) runs `composer install` when it is missing
+      # and then hands over to the repo's own entrypoint.sh.
+      - ${LARAVEL_CONTEXT:-../task-management-app}:/var/www/html
+      - ./.docker/laravel/docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh:ro
+    entrypoint: ["docker-entrypoint.sh"]
+    expose:
+      - "9000"
     depends_on:
-      - mariadb
-      - redis
-    command: /usr/local/bin/entrypoint.sh
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
-  node:
-    container_name: "${NODE_CONTAINER_NAME}_${BUILD_NUMBER}"
+  # Next.js dev server. Reachable only through nginx, so the browser talks to
+  # the API on the same origin and CORS never gets in the way.
+  web:
     build:
-      context: "./nodejs-backend"  # Context for the Node.js app files
-      dockerfile: "../.docker/express/Dockerfile"  # Point to the external Dockerfile
-    env_file:
-      - .env
+      context: ${NEXT_CONTEXT:-../task-management-next-react}
+      dockerfile: ${STACK_DIR:-../task-management-docker}/.docker/next/Dockerfile
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:${NGINX_PORT:-8080}/api
+      # File watching over bind mounts needs polling.
+      WATCHPACK_POLLING: "true"
     volumes:
-      - ./nodejs-backend:/usr/src/app  # Bind-mount the folder for live updates
-    ports:
-      - "${EXPRESS_PORT}:4000"
-    networks:
-      - app_network
-    depends_on:
-      - redis
-      - app
-
-  react:
-    container_name: "${REACT_CONTAINER_NAME}_${BUILD_NUMBER}"
-    build:
-      context: "./next-frontend"  # Context for the React app files
-      dockerfile: "../.docker/react/Dockerfile"  # Point to the external Dockerfile
-    env_file:
-      - .env
-    volumes:
-      - ./next-frontend:/usr/src/app  # Bind-mount the folder for live updates
-    ports:
-      - "${NEXT_PORT}:3000"  # Default Next.js dev port is 3000
-    networks:
-      - app_network
-    depends_on:
-      - node
+      - ${NEXT_CONTEXT:-../task-management-next-react}:/usr/src/app
+      # Keep the image's Linux node_modules instead of whatever the host has.
+      - /usr/src/app/node_modules
+    expose:
+      - "3000"
 
   nginx:
-    image: nginx:latest
-    container_name: "${NGINX_CONTAINER_NAME}_${BUILD_NUMBER}"
+    image: nginx:1.27-alpine
     ports:
-      - "8080:80"  # Map port 80 in the container to 8080 on the host
+      - "${NGINX_PORT:-8080}:80"
     volumes:
-      - ./.docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf
-      - ./task-management-app:/var/www/html
-    networks:
-      - app_network
+      - ./.docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # Read-only copy of the Laravel repo so try_files can see public/.
+      - ${LARAVEL_CONTEXT:-../task-management-app}:/var/www/html:ro
     depends_on:
-      - app # Ensure NGINX waits until the Laravel container is up
-      - node # Ensure NGINX waits until the Express container is up
-      - react # Ensure NGINX waits until the React container is up
-networks:
-  app_network:
-    driver: bridge
+      app:
+        condition: service_started
+      web:
+        condition: service_started
 
 volumes:
+  postgres_data:
   redis_data:
