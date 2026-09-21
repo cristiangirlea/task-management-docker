@@ -11,7 +11,7 @@ the Laravel API, the Next.js frontend, PostgreSQL, Redis and an nginx front door
                              ▼              ▼
                 ┌────────────────┐   ┌────────────────────┐
                 │ app            │   │ web                │
-                │ Laravel 12     │   │ Next.js 15 dev     │
+                │ Laravel 13     │   │ Next.js 15 dev     │
                 │ php-fpm :9000  │   │ server :3000       │
                 └───┬────────┬───┘   └────────────────────┘
                     ▼        ▼
