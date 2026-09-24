@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    name: Validate the stacks and drill the backups
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compose files render
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          cp .env.prod.example .env.prod
+          docker compose -f docker-compose.prod.yml --env-file .env.prod config --quiet
+
+      - name: Caddyfile is valid
+        run: |
+          docker run --rm -e SITE_DOMAIN=example.com -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Build the backup image
+        run: docker build -t tm-backup .docker/backup
+
+      # A dump goes off-site (a local rclone remote here) and restores into a
+      # fresh database with its data intact.
+      - name: Backup and restore drill
+        run: |
+          docker network create ci
+          docker run -d --name db --network ci -e POSTGRES_USER=app -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=app postgres:16-alpine
+          for i in $(seq 1 30); do docker exec db pg_isready -U app -d app && break; sleep 1; done
+          docker exec db psql -U app -d app -c "create table notes (id serial primary key, body text); insert into notes (body) values ('kept')"
+
+          run() {
+            docker run --rm --network ci \
+              -e PGHOST=db -e PGUSER=app -e PGPASSWORD=secret -e PGDATABASE=app \
+              -e RCLONE_CONFIG_OFFSITE_TYPE=local -e BACKUP_REMOTE=offsite:/offsite \
+              -v "$PWD/ci-backups:/backups" -v "$PWD/ci-offsite:/offsite" \
+              --entrypoint sh tm-backup -c "$1"
+          }
+          run backup.sh
+          ls ci-offsite | grep -q '\.dump$'
+          run 'rm /backups/*.dump && createdb drill && RESTORE_DATABASE=drill restore.sh "$(rclone -q lsf offsite:/offsite | head -1)"'
+          test "$(docker exec db psql -U app -d drill -tAc 'select body from notes')" = kept
+
+      - name: The backup service schedules itself
+        run: |
+          docker run -d --name cron -e BACKUP_SCHEDULE='0 4 * * *' -e PGDATABASE=app tm-backup
+          sleep 2
+          docker logs cron
+          test "$(docker inspect -f '{{.State.Running}}' cron)" = true
+          docker exec cron cat /etc/crontabs/root | grep -q '^0 4 \* \* \* \. /etc/backup.env && '

@@ -1,3 +1,6 @@
 .env
 .vscode/
 .idea/
+# Production secrets (see .env.prod.example and backup.env.example)
+.env.prod
+backup.env

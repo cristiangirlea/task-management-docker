@@ -1,0 +1,60 @@
+name: Deploy
+
+# Pulls the published images on the production server and restarts the stack,
+# then checks the site answers. Run it from the Actions tab.
+#
+# Repository secrets (Settings → Secrets and variables → Actions):
+#   DEPLOY_HOST         server address
+#   DEPLOY_USER         SSH user in the docker group
+#   DEPLOY_SSH_KEY      private key for that user (the public half in its authorized_keys)
+#   DEPLOY_KNOWN_HOSTS  output of `ssh-keyscan <host>`, so the host key is verified
+#   DEPLOY_PATH         where this repo is cloned on the server
+#   SITE_DOMAIN         public host name, for the health check
+on:
+  workflow_dispatch:
+    inputs:
+      api_tag:
+        description: API image tag (latest, sha-<commit>, or a version)
+        default: latest
+        required: true
+      web_tag:
+        description: Web image tag
+        default: latest
+        required: true
+
+concurrency: production
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check the tags
+        env:
+          API_TAG: ${{ inputs.api_tag }}
+          WEB_TAG: ${{ inputs.web_tag }}
+        run: |
+          for tag in "$API_TAG" "$WEB_TAG"; do
+            echo "$tag" | grep -Eq '^[A-Za-z0-9._-]{1,128}$' || { echo "invalid tag: $tag"; exit 1; }
+          done
+
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          API_TAG: ${{ inputs.api_tag }}
+          WEB_TAG: ${{ inputs.web_tag }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key "$USER@$HOST" \
+            "set -e; cd '$DEPLOY_PATH'; git pull --ff-only; export API_TAG='$API_TAG' WEB_TAG='$WEB_TAG'; bin/prod pull; bin/prod up -d --build --remove-orphans; docker image prune -f"
+
+      - name: Health check
+        env:
+          SITE_DOMAIN: ${{ secrets.SITE_DOMAIN }}
+        run: curl -fsS --retry 12 --retry-delay 5 --retry-all-errors "https://$SITE_DOMAIN/up" -o /dev/null

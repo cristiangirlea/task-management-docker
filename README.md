@@ -135,19 +135,16 @@ docker compose down -v                     # stop and wipe database and redis da
 - **Changed `composer.json` / `package.json`**: run the `exec ... install` commands
   above, or `docker compose up --build` to rebuild the images.
 
-## Pointing at a production build later
+## Production
 
-The images are already close to production shape: `app` ships its own
-`vendor/` and runs the repo's `entrypoint.sh`; `web` only needs its `CMD` swapped
-for `npm run build && npm run start` (or a multi-stage build that runs `next
-build`). To go that way, add a `docker-compose.prod.yml` override that
+`docker-compose.prod.yml` is a separate, production stack: Caddy with automatic HTTPS in
+place of nginx, the published images from GHCR instead of bind-mounted source, Postgres,
+Redis and a nightly off-site backup job. It runs on one small server (about $13/month).
+[docs/production.md](docs/production.md) is the runbook: server setup, configuration
+(`.env.prod.example`, `backup.env.example`), Stripe and email, backups and restore drills,
+updates (the **Deploy** workflow) and a local rehearsal.
 
-1. drops the bind mounts and the `entrypoint` override on `app`, and the bind
-   mount and anonymous volume on `web`;
-2. sets `APP_ENV=production`, `APP_DEBUG=false`, `SEED_DATABASE=false` and real
-   secrets;
-3. sets `NEXT_PUBLIC_API_URL` at **build time** (it is inlined by `next build`).
-
-Then run `docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build`.
-The nginx routing stays the same; `proxy_pass http://web:3000` just hits
-`next start` instead of the dev server.
+```bash
+cp .env.prod.example .env.prod   # fill it in
+bin/prod up -d --build           # docker compose -f docker-compose.prod.yml --env-file .env.prod ...
+```
