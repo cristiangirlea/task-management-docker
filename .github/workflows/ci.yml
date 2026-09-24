@@ -32,7 +32,9 @@ jobs:
         run: |
           docker network create ci
           docker run -d --name db --network ci -e POSTGRES_USER=app -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=app postgres:16-alpine
-          for i in $(seq 1 30); do docker exec db pg_isready -U app -d app && break; sleep 1; done
+          # Over TCP: during first-start initialisation the image runs a
+          # temporary server on the socket only, then restarts.
+          for i in $(seq 1 30); do docker exec db pg_isready -h 127.0.0.1 -U app -d app && break; sleep 1; done
           docker exec db psql -U app -d app -c "create table notes (id serial primary key, body text); insert into notes (body) values ('kept')"
 
           run() {
