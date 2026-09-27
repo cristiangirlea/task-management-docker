@@ -9,7 +9,7 @@ jobs:
     name: Validate the stacks and drill the backups
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Compose files render
         run: |
@@ -56,3 +56,21 @@ jobs:
           docker logs cron
           test "$(docker inspect -f '{{.State.Running}}' cron)" = true
           docker exec cron cat /etc/crontabs/root | grep -q '^0 4 \* \* \* \. /etc/backup.env && '
+
+      # The published API image run the way docker-compose.prod.yml runs the
+      # scheduler: no migrations, the reconcile command scheduled, and the
+      # compose healthcheck's pgrep available in the image.
+      - name: The scheduler runs from the published API image
+        run: |
+          touch "$PWD/scheduler.sqlite" && chmod 666 "$PWD/scheduler.sqlite"
+          docker run -d --name scheduler \
+            -e APP_ENV=production -e APP_KEY="base64:$(openssl rand -base64 32)" \
+            -e DB_CONNECTION=sqlite -e DB_DATABASE=/data/scheduler.sqlite -v "$PWD:/data" \
+            -e CACHE_STORE=array -e LOG_CHANNEL=stderr \
+            ghcr.io/cristiangirlea/task-management-api:latest php artisan schedule:work
+          sleep 8
+          docker logs scheduler
+          test "$(docker inspect -f '{{.State.Running}}' scheduler)" = true
+          docker exec scheduler pgrep -f schedule:work
+          docker exec scheduler php artisan schedule:list | grep -q billing:reconcile-seats
+          if docker logs scheduler 2>&1 | grep -qi 'migrat'; then echo "the scheduler must not migrate"; exit 1; fi

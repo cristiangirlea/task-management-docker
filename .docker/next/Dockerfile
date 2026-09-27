@@ -17,4 +17,6 @@ COPY . .
 
 EXPOSE 3000
 
-CMD ["npm", "run", "dev"]
+# Webpack rather than Turbopack: it honours WATCHPACK_POLLING (set in
+# docker-compose.yml), which hot reload needs over bind mounts.
+CMD ["npm", "run", "dev:docker"]

@@ -138,8 +138,8 @@ docker compose down -v                     # stop and wipe database and redis da
 ## Production
 
 `docker-compose.prod.yml` is a separate, production stack: Caddy with automatic HTTPS in
-place of nginx, the published images from GHCR instead of bind-mounted source, Postgres,
-Redis and a nightly off-site backup job. It runs on one small server (about $13/month).
+place of nginx, the published images from GHCR instead of bind-mounted source, Laravel's
+scheduler, Postgres, Redis and a nightly off-site backup job. It runs on one small server (about $13/month).
 [docs/production.md](docs/production.md) is the runbook: server setup, configuration
 (`.env.prod.example`, `backup.env.example`), Stripe and email, backups and restore drills,
 updates (the **Deploy** workflow) and a local rehearsal.
