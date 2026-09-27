@@ -3,6 +3,7 @@
 #   internet ──> caddy :80/:443 (automatic HTTPS for ${SITE_DOMAIN})
 #                  ├── /api/*, /mcp, /up ──> app (Laravel php-fpm :9000) ──> postgres, redis
 #                  └── everything else  ──> web (Next.js standalone :3000)
+#   scheduler: Laravel's scheduled commands (same image as app)
 #   backup: nightly pg_dump to a volume, copied off-site with rclone
 #
 # The app images are built and published by the app repos' release workflows
@@ -54,6 +55,29 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  # Laravel's scheduler, from the same image: runs the hourly Stripe seat
+  # reconcile (billing:reconcile-seats). It never migrates; app does that.
+  scheduler:
+    <<: *defaults
+    image: ghcr.io/${GHCR_OWNER:-cristiangirlea}/task-management-api:${API_TAG:-latest}
+    env_file: .env.prod
+    environment:
+      # Scheduled commands' output, into this container's log.
+      SCHEDULE_OUTPUT: /proc/1/fd/1
+    command: ["php", "artisan", "schedule:work"]
+    # A task touches this file every minute, so a stale file means the
+    # scheduler has stopped running tasks. (The image's own check pings
+    # php-fpm, which does not run here.)
+    healthcheck:
+      test: ["CMD-SHELL", "find /var/www/html/storage/framework/schedule-heartbeat -mmin -3 2>/dev/null | grep -q ."]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 2m
+    depends_on:
+      app:
         condition: service_healthy
 
   web:

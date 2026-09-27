@@ -1,7 +1,7 @@
 # Running Task Board in production
 
 One small server runs everything with Docker Compose: Caddy (HTTPS), the Laravel API
-(php-fpm), the Next.js app, Postgres, Redis and a backup job. The app images are built
+(php-fpm) and its scheduler, the Next.js app, Postgres, Redis and a backup job. The app images are built
 by the app repos' `release.yml` workflows and pulled from GitHub Container Registry;
 this repo holds only the stack definition.
 
@@ -9,7 +9,7 @@ this repo holds only the stack definition.
 internet ──> caddy :443 (Let's Encrypt)
                ├── /api/*, /mcp, /up ──> app   ghcr.io/cristiangirlea/task-management-api
                └── everything else  ──> web   ghcr.io/cristiangirlea/task-management-web
-             app ──> postgres, redis            backup ──> nightly pg_dump ──> B2 / R2
+             app, scheduler ──> postgres, redis  backup ──> nightly pg_dump ──> B2 / R2
 ```
 
 ## What it costs
@@ -42,11 +42,11 @@ You need:
 
 ## 2. Publish the images
 
-Merge the app repos into `master`: each one's `release.yml` publishes its image to GHCR
-(`latest` plus a `sha-<commit>` tag). You can also run it by hand from the Actions tab.
-The packages are private by default: either make them public (GitHub → your profile →
-Packages → package settings), or log the server in with a personal access token that has
-`read:packages` (step 4).
+Merging an app repo into `master` runs its `release.yml`, which publishes the image to GHCR
+(`latest`, `master` and a `sha-<commit>` tag). You can also run it by hand from the Actions
+tab. Both images are already published. Because the app repos are public, so are the images:
+the server pulls them without logging in. (If you make a repo private, its package follows;
+then log the server in with a personal access token that has `read:packages`, step 4.)
 
 ## 3. Create the server
 
@@ -86,7 +86,7 @@ echo "base64:$(openssl rand -base64 32)"   # APP_KEY
 openssl rand -hex 24                        # DB_PASSWORD, REDIS_PASSWORD
 ```
 
-Leave `STRIPE_WEBHOOK_SECRET` empty until step 6. If the GHCR packages are private:
+Leave `STRIPE_WEBHOOK_SECRET` empty until step 6. Only if the GHCR packages are private:
 `echo <token> | docker login ghcr.io -u <github-user> --password-stdin`.
 
 ## 5. Start it
@@ -101,7 +101,11 @@ curl -fsS https://tasks.example.com/up
 `bin/prod` is `docker compose -f docker-compose.prod.yml --env-file .env.prod`, so every
 compose command works through it (`bin/prod logs web`, `bin/prod exec app php artisan
 about`, ...). The app container runs pending migrations every time it starts; it never
-seeds. Register at `https://tasks.example.com/register` to create the first workspace.
+seeds. The scheduler container starts once app is healthy and runs Laravel's scheduled
+commands, today one: every hour, `billing:reconcile-seats` corrects any paying workspace
+whose Stripe seat count missed a change (say Stripe was unreachable when someone joined).
+`bin/prod exec app php artisan billing:reconcile-seats --dry-run` shows what it would fix.
+Register at `https://tasks.example.com/register` to create the first workspace.
 
 ## 6. Connect Stripe
 
@@ -180,8 +184,11 @@ cd task-management-docker && git pull && bin/prod pull && bin/prod up -d --build
 ```
 
 To pin or roll back, set `API_TAG` / `WEB_TAG` in `.env.prod` to a `sha-<commit>` tag
-(or give it to the Deploy workflow) and `bin/prod up -d`. Migrations only move forward,
-so roll back the database from a backup if a migration has to be undone.
+(or give it to the Deploy workflow) and `bin/prod up -d`. Migrations only move forward: an
+older API image does not undo the ones a newer image ran, and may not work against that
+schema (for example, images from before invitation links were hashed expect a `token`
+column that no longer exists). Rolling the API back past a migration therefore means
+restoring the database from the backup taken before the update (section 8).
 
 The Deploy workflow needs these repository secrets: `DEPLOY_HOST`, `DEPLOY_USER`
 (`deploy`), `DEPLOY_SSH_KEY` (a key pair made for it; its public half goes in the deploy
@@ -211,5 +218,11 @@ open https://localhost
   not on it. Resend's dashboard lists every attempt.
 - **Upgrades stay on Free**: `STRIPE_WEBHOOK_SECRET` is missing or wrong; Stripe's webhook
   page shows the failed deliveries and their responses (403 means a wrong secret).
+- **A workspace is billed for the wrong number of seats**: `bin/prod logs scheduler` shows
+  each hourly reconcile's report and any seat update Stripe refused; the app log has the
+  refusals made when members joined or left. `bin/prod exec app php artisan
+  billing:reconcile-seats` runs it immediately.
+- **The scheduler is unhealthy**: it touches a heartbeat file every minute; unhealthy means
+  it stopped running tasks. `bin/prod logs scheduler`, then `bin/prod restart scheduler`.
 - **Out of memory**: `docker stats`. Lower `pm.max_children` in the API image, or move up a
   server size.
