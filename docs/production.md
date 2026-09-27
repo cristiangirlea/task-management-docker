@@ -184,8 +184,11 @@ cd task-management-docker && git pull && bin/prod pull && bin/prod up -d --build
 ```
 
 To pin or roll back, set `API_TAG` / `WEB_TAG` in `.env.prod` to a `sha-<commit>` tag
-(or give it to the Deploy workflow) and `bin/prod up -d`. Migrations only move forward,
-so roll back the database from a backup if a migration has to be undone.
+(or give it to the Deploy workflow) and `bin/prod up -d`. Migrations only move forward: an
+older API image does not undo the ones a newer image ran, and may not work against that
+schema (for example, images from before invitation links were hashed expect a `token`
+column that no longer exists). Rolling the API back past a migration therefore means
+restoring the database from the backup taken before the update (section 8).
 
 The Deploy workflow needs these repository secrets: `DEPLOY_HOST`, `DEPLOY_USER`
 (`deploy`), `DEPLOY_SSH_KEY` (a key pair made for it; its public half goes in the deploy
@@ -216,7 +219,10 @@ open https://localhost
 - **Upgrades stay on Free**: `STRIPE_WEBHOOK_SECRET` is missing or wrong; Stripe's webhook
   page shows the failed deliveries and their responses (403 means a wrong secret).
 - **A workspace is billed for the wrong number of seats**: `bin/prod logs scheduler` shows
-  the hourly reconcile, and the app log has a warning for every seat update Stripe refused.
-  `bin/prod exec app php artisan billing:reconcile-seats` runs it immediately.
+  each hourly reconcile's report and any seat update Stripe refused; the app log has the
+  refusals made when members joined or left. `bin/prod exec app php artisan
+  billing:reconcile-seats` runs it immediately.
+- **The scheduler is unhealthy**: it touches a heartbeat file every minute; unhealthy means
+  it stopped running tasks. `bin/prod logs scheduler`, then `bin/prod restart scheduler`.
 - **Out of memory**: `docker stats`. Lower `pm.max_children` in the API image, or move up a
   server size.

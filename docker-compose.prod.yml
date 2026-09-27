@@ -63,13 +63,19 @@ services:
     <<: *defaults
     image: ghcr.io/${GHCR_OWNER:-cristiangirlea}/task-management-api:${API_TAG:-latest}
     env_file: .env.prod
+    environment:
+      # Scheduled commands' output, into this container's log.
+      SCHEDULE_OUTPUT: /proc/1/fd/1
     command: ["php", "artisan", "schedule:work"]
-    # The image's own check pings php-fpm, which does not run here.
+    # A task touches this file every minute, so a stale file means the
+    # scheduler has stopped running tasks. (The image's own check pings
+    # php-fpm, which does not run here.)
     healthcheck:
-      test: ["CMD", "pgrep", "-f", "schedule:work"]
-      interval: 30s
+      test: ["CMD-SHELL", "find /var/www/html/storage/framework/schedule-heartbeat -mmin -3 2>/dev/null | grep -q ."]
+      interval: 60s
       timeout: 5s
       retries: 3
+      start_period: 2m
     depends_on:
       app:
         condition: service_healthy

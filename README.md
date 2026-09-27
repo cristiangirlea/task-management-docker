@@ -133,7 +133,10 @@ docker compose down -v                     # stop and wipe database and redis da
 - **nginx exits with "host not found in upstream"**: `app` or `web` failed to
   start; check `docker compose logs app web`.
 - **Changed `composer.json` / `package.json`**: run the `exec ... install` commands
-  above, or `docker compose up --build` to rebuild the images.
+  above, or `docker compose up --build -V` to rebuild the images. `-V` matters for the
+  frontend: its `node_modules` lives in an anonymous volume that a plain rebuild keeps,
+  so after the Next.js 16 upgrade the old Next 15 stays and `next dev --webpack` exits
+  with an unknown option.
 
 ## Production
 
