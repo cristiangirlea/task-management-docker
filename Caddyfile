@@ -1,0 +1,40 @@
+# Front proxy for the production stack (docker-compose.prod.yml).
+#
+# SITE_DOMAIN is the public host name; Caddy obtains and renews its
+# certificate automatically. With SITE_DOMAIN=localhost it uses a local CA
+# instead, for rehearsing the stack on a laptop.
+
+{$SITE_DOMAIN} {
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	# Not on localhost: the browser would then refuse plain HTTP to every
+	# local development server for a year.
+	@public not host localhost
+	header @public Strict-Transport-Security "max-age=31536000"
+
+	# Laravel: the REST API (including Stripe's webhook at /api/stripe/webhook),
+	# the MCP endpoint and the health check. Every request goes to the front
+	# controller; Caddy still passes the original path as REQUEST_URI, which is
+	# what Laravel routes on. The PHP files live only in the app container.
+	@laravel path /api /api/* /mcp /mcp/* /up
+	handle @laravel {
+		rewrite * /index.php
+		reverse_proxy app:9000 {
+			transport fastcgi {
+				root /var/www/html/public
+				split .php
+			}
+			# MCP answers can be streamed (server-sent events); pass them on at once.
+			flush_interval -1
+		}
+	}
+
+	# Everything else is the Next.js app.
+	handle {
+		encode zstd gzip
+		reverse_proxy web:3000
+	}
+}

@@ -1,34 +1,33 @@
-FROM php:8.4-fpm
+# syntax=docker/dockerfile:1
+# Laravel API (php-fpm).
+#
+# The build context is the Laravel repo itself (docker-compose.yml points here
+# via STACK_DIR). Dockerfile.dockerignore next to this file keeps vendor/, .env,
+# node_modules/ and tests out of the image.
+FROM php:8.4-fpm-alpine
 
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    zip unzip git curl libpq-dev libzip-dev \
-    && docker-php-ext-install pdo pdo_mysql \
-    && pecl install redis \
-    && docker-php-ext-enable redis \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+# bash: the app's entrypoint.sh is a bash script. git/unzip: used by Composer.
+RUN apk add --no-cache bash git unzip
 
-# Set the working directory
+# PHP extensions via https://github.com/mlocati/docker-php-extension-installer,
+# which pulls in the right Alpine build/runtime packages for each one.
+COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
+RUN install-php-extensions pdo_pgsql pgsql zip bcmath opcache redis
+
+COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
+ENV COMPOSER_ALLOW_SUPERUSER=1
+
 WORKDIR /var/www/html
+COPY . .
 
-# Copy the full Laravel application
-COPY . /var/www/html/
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-progress \
+    && chown -R www-data:www-data storage bootstrap/cache
 
-# Install Composer globally
-RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+# php-fpm listens on 9000 (the base image's default); nginx reaches it over the
+# compose network, the port is never published on the host.
+EXPOSE 9000
 
-# Run composer install (now that artisan is present)
-RUN composer install --no-dev --optimize-autoloader
-
-# Set permissions for storage and bootstrap cache
-RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
-
-# Copy the entrypoint script and set permissions
-COPY ./entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
-
-# Expose the PHP-FPM port
-EXPOSE 8000
-
-# Use entrypoint script to handle migrations and PHP-FPM start
-CMD ["/usr/local/bin/entrypoint.sh"]
+# The repo's own entrypoint: clears caches, runs migrations, seeds when
+# SEED_DATABASE=true, then starts php-fpm. Invoked through bash because the
+# file is committed without the executable bit.
+CMD ["bash", "/var/www/html/entrypoint.sh"]

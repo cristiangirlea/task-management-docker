@@ -1,0 +1,13 @@
+# Applies to the Next.js repo (the build context) when building with this
+# Dockerfile. BuildKit picks up <Dockerfile>.dockerignore next to the Dockerfile.
+.git
+.github
+.idea
+.vscode
+node_modules
+.next
+out
+.env
+.env.*
+*.tsbuildinfo
+npm-debug.log*

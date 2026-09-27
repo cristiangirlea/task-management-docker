@@ -1,0 +1,6 @@
+#!/bin/sh
+# docker compose for the production stack, with its env file:
+#   bin/prod up -d          bin/prod logs -f app          bin/prod ps
+set -e
+cd "$(dirname "$0")/.."
+exec docker compose -f docker-compose.prod.yml --env-file .env.prod "$@"
