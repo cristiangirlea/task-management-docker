@@ -58,8 +58,8 @@ jobs:
           docker exec cron cat /etc/crontabs/root | grep -q '^0 4 \* \* \* \. /etc/backup.env && '
 
       # The published API image run the way docker-compose.prod.yml runs the
-      # scheduler: it must not migrate, the reconcile's output must reach the
-      # container log, and the heartbeat behind the health check must appear.
+      # scheduler: the heartbeat behind the health check must appear, it must not
+      # migrate, and the reconcile's output must reach the container log.
       - name: The scheduler runs from the published API image
         run: |
           docker run -d --name scheduler \
@@ -68,12 +68,13 @@ jobs:
             -e CACHE_STORE=array -e LOG_CHANNEL=stderr -e SCHEDULE_OUTPUT=/proc/1/fd/1 \
             ghcr.io/cristiangirlea/task-management-api:latest php artisan schedule:work
 
-          for i in $(seq 1 30); do
-            docker logs scheduler 2>&1 | grep -q 'Running scheduled tasks' && break
+          healthy='find /var/www/html/storage/framework/schedule-heartbeat -mmin -3 2>/dev/null | grep -q .'
+          for i in $(seq 1 45); do
+            docker exec scheduler sh -c "$healthy" && break
             [ "$(docker inspect -f '{{.State.Running}}' scheduler)" = true ] || break
             sleep 2
           done
-          docker logs scheduler 2>&1 | grep -q 'Running scheduled tasks' || { docker logs scheduler; exit 1; }
+          docker exec scheduler sh -c "$healthy" || { docker logs scheduler; echo "no heartbeat after 90s"; exit 1; }
           if docker logs scheduler 2>&1 | grep -qi 'migrat'; then echo "the scheduler must not migrate"; exit 1; fi
           docker exec scheduler php artisan schedule:list | grep -q billing:reconcile-seats
 
@@ -82,8 +83,3 @@ jobs:
           docker exec scheduler php artisan schedule:test --name=billing:reconcile-seats
           for i in $(seq 1 10); do docker logs scheduler 2>&1 | grep -q 'Checked 0 paying workspaces' && break; sleep 1; done
           docker logs scheduler 2>&1 | grep -q 'Checked 0 paying workspaces' || { docker logs scheduler; echo "reconcile output did not reach the log"; exit 1; }
-
-          healthy='find /var/www/html/storage/framework/schedule-heartbeat -mmin -3 2>/dev/null | grep -q .'
-          docker exec scheduler rm -f /var/www/html/storage/framework/schedule-heartbeat
-          for i in $(seq 1 45); do docker exec scheduler sh -c "$healthy" && break; sleep 2; done
-          docker exec scheduler sh -c "$healthy" || { docker logs scheduler; echo "no heartbeat after 90s"; exit 1; }
