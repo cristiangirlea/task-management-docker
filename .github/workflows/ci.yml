@@ -1,13 +1,24 @@
 name: CI
 
+# Runs only on our own runners (the infra repo's lab-<repo> scale set, named by the CI_RUNNER
+# variable), never on GitHub's: every job is skipped while CI_RUNNER is unset, and for a pull
+# request from a fork, whose code must not reach those runners.
 on:
   push:
+    branches: [master]
   pull_request:
+  workflow_dispatch:
+
+# A newer push to a pull request replaces its queued or running check.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate:
     name: Validate the stacks and drill the backups
-    runs-on: ubuntu-latest
+    if: vars.CI_RUNNER != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ vars.CI_RUNNER }}
     steps:
       - uses: actions/checkout@v7
 

@@ -1,7 +1,8 @@
 name: Deploy
 
 # Pulls the published images on the production server and restarts the stack,
-# then checks the site answers. Run it from the Actions tab.
+# then checks the site answers. Run it from the Actions tab. It runs on our own
+# runners only, like CI (see ci.yml), and is skipped while CI_RUNNER is unset.
 #
 # Repository secrets (Settings → Secrets and variables → Actions):
 #   DEPLOY_HOST         server address
@@ -26,7 +27,8 @@ concurrency: production
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    if: vars.CI_RUNNER != ''
+    runs-on: ${{ vars.CI_RUNNER }}
     environment: production
     steps:
       - name: Check the tags
