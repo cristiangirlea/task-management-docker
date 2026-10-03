@@ -46,8 +46,9 @@ Merging an app repo into `master` runs its `release.yml`, which publishes the im
 (`latest`, `master` and a `sha-<commit>` tag). You can also run it by hand from the Actions
 tab. Every workflow in these repos runs on our own self-hosted runners (the `infra` repo, named
 by each repo's `CI_RUNNER` variable), never on GitHub's, so the machine hosting them must be on
-for images to publish and deploys to run; while `CI_RUNNER` is unset, the jobs are skipped. Both images are already published. Because the app repos are public, so are the images:
-the server pulls them without logging in. (If you make a repo private, its package follows;
+for images to publish and deploys to run; while `CI_RUNNER` is unset, the jobs are skipped.
+Both images are already published. Because the app repos are public, so are the images: the
+server pulls them without logging in. (If you make a repo private, its package follows;
 then log the server in with a personal access token that has `read:packages`, step 4.)
 
 ## 3. Create the server
@@ -224,6 +225,10 @@ open https://localhost
   each hourly reconcile's report and any seat update Stripe refused; the app log has the
   refusals made when members joined or left. `bin/prod exec app php artisan
   billing:reconcile-seats` runs it immediately.
+- **Someone lost both their phone and their recovery codes**: once you are sure it is them,
+  `bin/prod exec app php artisan two-factor:disable <email>` turns two-factor authentication
+  off, signs the account out everywhere and revokes its API tokens; they sign in with their
+  password and set it up again.
 - **The scheduler is unhealthy**: it touches a heartbeat file every minute; unhealthy means
   it stopped running tasks. `bin/prod logs scheduler`, then `bin/prod restart scheduler`.
 - **Out of memory**: `docker stats`. Lower `pm.max_children` in the API image, or move up a
