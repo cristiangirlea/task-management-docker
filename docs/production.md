@@ -87,7 +87,12 @@ Fill in every `CHANGE_ME` in both files. Generate secrets with:
 ```bash
 echo "base64:$(openssl rand -base64 32)"   # APP_KEY
 openssl rand -hex 24                        # DB_PASSWORD, REDIS_PASSWORD
+bin/oauth-keys >> .env.prod                 # PASSPORT_*_KEY (then delete the two empty lines)
 ```
+
+The last line is the key pair that signs OAuth tokens for MCP clients (Claude, Cursor, VS Code):
+without it they can only connect with an API token, and the app logs a warning at start.
+Generate it once; a new pair signs out every connected app.
 
 Leave `STRIPE_WEBHOOK_SECRET` empty until step 6. Only if the GHCR packages are private:
 `echo <token> | docker login ghcr.io -u <github-user> --password-stdin`.
@@ -105,8 +110,9 @@ curl -fsS https://tasks.example.com/up
 compose command works through it (`bin/prod logs web`, `bin/prod exec app php artisan
 about`, ...). The app container runs pending migrations every time it starts; it never
 seeds. The scheduler container starts once app is healthy and runs Laravel's scheduled
-commands, today one: every hour, `billing:reconcile-seats` corrects any paying workspace
-whose Stripe seat count missed a change (say Stripe was unreachable when someone joined).
+commands: every hour, `billing:reconcile-seats` corrects any paying workspace whose
+Stripe seat count missed a change (say Stripe was unreachable when someone joined), and
+every day `passport:purge` clears expired OAuth tokens.
 `bin/prod exec app php artisan billing:reconcile-seats --dry-run` shows what it would fix.
 Register at `https://tasks.example.com/register` to create the first workspace.
 
@@ -140,6 +146,10 @@ Register at `https://tasks.example.com/register` to create the first workspace.
 4. **Manage billing** opens the Stripe portal. Cancel there: Settings shows "Ends <date>",
    and the workspace keeps Team until then.
 5. In Stripe → Webhooks → your endpoint, every delivery shows `200`.
+6. Connect an MCP client: `claude mcp add --transport http task-board https://tasks.example.com/mcp`,
+   then `/mcp` in Claude Code. A browser opens Task Board's "Allow Claude Code?" page; allow it,
+   and the agent can list your projects. Settings → **Connected apps** lists it; **Disconnect**
+   ends its access.
 
 When that all works, repeat step 6 with **live** keys and a live price, and put them in
 `.env.prod`.
@@ -229,6 +239,11 @@ open https://localhost
   `bin/prod exec app php artisan two-factor:disable <email>` turns two-factor authentication
   off, signs the account out everywhere and revokes its API tokens; they sign in with their
   password and set it up again.
+- **MCP clients cannot connect through OAuth** (they ask for a token, or report no
+  authorization server): `PASSPORT_PRIVATE_KEY`/`PASSPORT_PUBLIC_KEY` are missing from
+  `.env.prod` (`bin/prod logs app` shows the warning), or the proxy does not send `/oauth/*`
+  and `/.well-known/oauth-*` to Laravel. `curl https://tasks.example.com/.well-known/oauth-authorization-server`
+  should answer JSON.
 - **The scheduler is unhealthy**: it touches a heartbeat file every minute; unhealthy means
   it stopped running tasks. `bin/prod logs scheduler`, then `bin/prod restart scheduler`.
 - **Out of memory**: `docker stats`. Lower `pm.max_children` in the API image, or move up a

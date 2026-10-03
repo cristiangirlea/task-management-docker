@@ -69,6 +69,10 @@ starts php-fpm. The Next.js container runs `npm run dev`.
 
 Demo login when `SEED_DATABASE=true`: **demo@example.com** / **password**.
 
+MCP clients can connect with an API token from Settings. To let them connect through OAuth
+instead (sign in and allow, nothing to copy), give Laravel its key pair once:
+`bin/oauth-keys >> .env && docker compose up -d app`.
+
 Change `NGINX_PORT` in `.env` if 8080 is taken; `APP_URL` and `CORS_ALLOWED_ORIGINS`
 must be updated to match.
 

@@ -16,10 +16,12 @@
 	header @public Strict-Transport-Security "max-age=31536000"
 
 	# Laravel: the REST API (including Stripe's webhook at /api/stripe/webhook),
-	# the MCP endpoint and the health check. Every request goes to the front
-	# controller; Caddy still passes the original path as REQUEST_URI, which is
-	# what Laravel routes on. The PHP files live only in the app container.
-	@laravel path /api /api/* /mcp /mcp/* /up
+	# the MCP endpoint, OAuth for MCP clients (/oauth/* and its discovery
+	# documents, /.well-known/oauth-*) and the health check. Every request goes
+	# to the front controller; Caddy still passes the original path as
+	# REQUEST_URI, which is what Laravel routes on. The PHP files live only in
+	# the app container. (The web app's consent page is /authorize, not here.)
+	@laravel path /api /api/* /mcp /mcp/* /oauth/* /.well-known/oauth-* /up
 	handle @laravel {
 		rewrite * /index.php
 		reverse_proxy app:9000 {
