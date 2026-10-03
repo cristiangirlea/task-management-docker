@@ -1,0 +1,15 @@
+#!/bin/sh
+# Prints a new RSA key pair for OAuth (MCP clients) as two .env.prod lines:
+#   bin/oauth-keys >> .env.prod
+# Each key is on one line, with \n for its line breaks; Laravel turns them
+# back. Generate it once: a new pair signs out every connected app.
+set -eu
+
+dir=$(mktemp -d)
+trap 'rm -rf "$dir"' EXIT
+
+openssl genrsa -out "$dir/private.pem" 4096 2>/dev/null
+openssl rsa -in "$dir/private.pem" -pubout -out "$dir/public.pem" 2>/dev/null
+
+printf 'PASSPORT_PRIVATE_KEY=%s\n' "$(awk '{printf "%s\\n", $0}' "$dir/private.pem")"
+printf 'PASSPORT_PUBLIC_KEY=%s\n' "$(awk '{printf "%s\\n", $0}' "$dir/public.pem")"

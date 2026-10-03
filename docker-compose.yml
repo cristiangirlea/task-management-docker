@@ -1,7 +1,7 @@
 # Development stack for the task management app.
 #
 #   browser ──> nginx :${NGINX_PORT}
-#                 ├── /api/*, /mcp, /up ──> app (Laravel, php-fpm :9000) ──> postgres, redis
+#                 ├── /api/*, /mcp, /oauth/*, /.well-known/oauth-*, /up ──> app (Laravel, php-fpm :9000) ──> postgres, redis
 #                 └── everything else  ──> web (Next.js dev server :3000)
 #
 # The Laravel and Next.js repos are expected next to this one (see .env.example:
