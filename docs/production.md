@@ -44,7 +44,9 @@ You need:
 
 Merging an app repo into `master` runs its `release.yml`, which publishes the image to GHCR
 (`latest`, `master` and a `sha-<commit>` tag). You can also run it by hand from the Actions
-tab. Both images are already published. Because the app repos are public, so are the images:
+tab. Every workflow in these repos runs on our own self-hosted runners (the `infra` repo, named
+by each repo's `CI_RUNNER` variable), never on GitHub's, so the machine hosting them must be on
+for images to publish and deploys to run; while `CI_RUNNER` is unset, the jobs are skipped. Both images are already published. Because the app repos are public, so are the images:
 the server pulls them without logging in. (If you make a repo private, its package follows;
 then log the server in with a personal access token that has `read:packages`, step 4.)
 
