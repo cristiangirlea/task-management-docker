@@ -15,6 +15,13 @@
 	@public not host localhost
 	header @public Strict-Transport-Security "max-age=31536000"
 
+	# Live board updates: browsers' WebSocket connections to Reverb (/app/<key>).
+	# Its HTTP API (/apps/...), which the app sends events to, stays internal.
+	@reverb path /app/*
+	handle @reverb {
+		reverse_proxy reverb:8080
+	}
+
 	# Laravel: the REST API (including Stripe's webhook at /api/stripe/webhook),
 	# the MCP endpoint, OAuth for MCP clients (/oauth/* and its discovery
 	# documents, /.well-known/oauth-*) and the health check. Every request goes
