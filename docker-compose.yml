@@ -2,6 +2,7 @@
 #
 #   browser ──> nginx :${NGINX_PORT}
 #                 ├── /api/*, /mcp, /oauth/*, /.well-known/oauth-*, /up ──> app (Laravel, php-fpm :9000) ──> postgres, redis
+#                 ├── /app/* (WebSocket) ──> reverb (:8080), live board updates
 #                 └── everything else  ──> web (Next.js dev server :3000)
 #
 # The Laravel and Next.js repos are expected next to this one (see .env.example:
@@ -57,6 +58,8 @@ services:
       - ${LARAVEL_CONTEXT:-../task-management-app}:/var/www/html
       - ./.docker/laravel/docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh:ro
     entrypoint: ["docker-entrypoint.sh"]
+    # Setting entrypoint drops the image's CMD, so it is repeated here.
+    command: ["bash", "/var/www/html/entrypoint.sh"]
     expose:
       - "9000"
     depends_on:
@@ -64,6 +67,22 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  # Reverb (live board updates), from the app's image and code. The app
+  # container installs vendor/ on first start; this one waits for it.
+  reverb:
+    build:
+      context: ${LARAVEL_CONTEXT:-../task-management-app}
+      dockerfile: ${STACK_DIR:-../task-management-docker}/.docker/laravel/Dockerfile
+    env_file: .env
+    volumes:
+      - ${LARAVEL_CONTEXT:-../task-management-app}:/var/www/html
+    command: ["sh", "-c", "until [ -f vendor/autoload.php ]; do sleep 2; done; exec php artisan reverb:start"]
+    expose:
+      - "8080"
+    depends_on:
+      app:
+        condition: service_started
 
   # Next.js dev server. Reachable only through nginx, so the browser talks to
   # the API on the same origin and CORS never gets in the way.
@@ -92,6 +111,8 @@ services:
       - ${LARAVEL_CONTEXT:-../task-management-app}:/var/www/html:ro
     depends_on:
       app:
+        condition: service_started
+      reverb:
         condition: service_started
       web:
         condition: service_started

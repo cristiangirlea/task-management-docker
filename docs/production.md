@@ -1,14 +1,15 @@
 # Running Task Board in production
 
 One small server runs everything with Docker Compose: Caddy (HTTPS), the Laravel API
-(php-fpm) and its scheduler, the Next.js app, Postgres, Redis and a backup job. The app images are built
+(php-fpm), its scheduler and Reverb (live board updates), the Next.js app, Postgres, Redis and a backup job. The app images are built
 by the app repos' `release.yml` workflows and pulled from GitHub Container Registry;
 this repo holds only the stack definition.
 
 ```
 internet ──> caddy :443 (Let's Encrypt)
-               ├── /api/*, /mcp, /up ──> app   ghcr.io/cristiangirlea/task-management-api
-               └── everything else  ──> web   ghcr.io/cristiangirlea/task-management-web
+               ├── /api/*, /mcp, /up ──> app     ghcr.io/cristiangirlea/task-management-api
+               ├── /app/* (WebSocket) ─> reverb  (same image; app sends it board changes)
+               └── everything else  ──> web     ghcr.io/cristiangirlea/task-management-web
              app, scheduler ──> postgres, redis  backup ──> nightly pg_dump ──> B2 / R2
 ```
 
@@ -87,12 +88,18 @@ Fill in every `CHANGE_ME` in both files. Generate secrets with:
 ```bash
 echo "base64:$(openssl rand -base64 32)"   # APP_KEY
 openssl rand -hex 24                        # DB_PASSWORD, REDIS_PASSWORD
+openssl rand -hex 16                        # REVERB_APP_ID, REVERB_APP_KEY, REVERB_APP_SECRET (one each)
 bin/oauth-keys >> .env.prod                 # PASSPORT_*_KEY (then delete the two empty lines)
 ```
 
 The last line is the key pair that signs OAuth tokens for MCP clients (Claude, Cursor, VS Code):
 without it they can only connect with an API token, and the app logs a warning at start.
 Generate it once; a new pair signs out every connected app.
+
+The three `REVERB_*` values let boards update live: the app sends each change to the
+`reverb` service, and open boards hear it over a WebSocket (Caddy passes `/app/*` to it).
+With `BROADCAST_CONNECTION=reverb` the app refuses to start while one of them is empty;
+`BROADCAST_CONNECTION=null` turns live updates off instead.
 
 Leave `STRIPE_WEBHOOK_SECRET` empty until step 6. Only if the GHCR packages are private:
 `echo <token> | docker login ghcr.io -u <github-user> --password-stdin`.
@@ -112,7 +119,8 @@ about`, ...). The app container runs pending migrations every time it starts; it
 seeds. The scheduler container starts once app is healthy and runs Laravel's scheduled
 commands: every hour, `billing:reconcile-seats` corrects any paying workspace whose
 Stripe seat count missed a change (say Stripe was unreachable when someone joined), and
-every day `passport:purge` clears expired OAuth tokens.
+every day `passport:purge` clears expired OAuth tokens and `oauth:purge-clients` deletes MCP
+clients that registered more than a day ago but were never allowed in.
 `bin/prod exec app php artisan billing:reconcile-seats --dry-run` shows what it would fix.
 Register at `https://tasks.example.com/register` to create the first workspace.
 
@@ -150,6 +158,9 @@ Register at `https://tasks.example.com/register` to create the first workspace.
    then `/mcp` in Claude Code. A browser opens Task Board's "Allow Claude Code?" page; allow it,
    and the agent can list your projects. Settings → **Connected apps** lists it; **Disconnect**
    ends its access.
+7. Open the board in two browsers (or one private window) and move a card in one: it moves in
+   the other within a second. Ask the MCP client to create a task: it appears on the board
+   without a reload.
 
 When that all works, repeat step 6 with **live** keys and a live price, and put them in
 `.env.prod`.
@@ -244,6 +255,11 @@ open https://localhost
   `.env.prod` (`bin/prod logs app` shows the warning), or the proxy does not send `/oauth/*`
   and `/.well-known/oauth-*` to Laravel. `curl https://tasks.example.com/.well-known/oauth-authorization-server`
   should answer JSON.
+- **Boards do not update until a reload**: `bin/prod ps` should show `reverb` healthy, and
+  `bin/prod logs reverb` says why it is not. The browser's developer tools (Network → WS)
+  should show a connection to `/app/...`. If it is refused with "Origin not allowed",
+  `FRONTEND_URL` is not the address people open. If the app logs a broadcasting error,
+  `REVERB_HOST`/`REVERB_PORT` do not reach the reverb service. Changes are saved either way.
 - **The scheduler is unhealthy**: it touches a heartbeat file every minute; unhealthy means
   it stopped running tasks. `bin/prod logs scheduler`, then `bin/prod restart scheduler`.
 - **Out of memory**: `docker stats`. Lower `pm.max_children` in the API image, or move up a

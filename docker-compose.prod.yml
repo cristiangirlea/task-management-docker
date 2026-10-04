@@ -2,8 +2,10 @@
 #
 #   internet ──> caddy :80/:443 (automatic HTTPS for ${SITE_DOMAIN})
 #                  ├── /api/*, /mcp, /up ──> app (Laravel php-fpm :9000) ──> postgres, redis
+#                  ├── /app/* (WebSocket) ──> reverb (:8080) <── app sends it board changes
 #                  └── everything else  ──> web (Next.js standalone :3000)
 #   scheduler: Laravel's scheduled commands (same image as app)
+#   reverb: live board updates (same image as app)
 #   backup: nightly pg_dump to a volume, copied off-site with rclone
 #
 # The app images are built and published by the app repos' release workflows
@@ -79,6 +81,21 @@ services:
     depends_on:
       app:
         condition: service_healthy
+
+  # Reverb, from the same image: the WebSocket server through which open boards
+  # hear that a project changed. The app sends it events over this network.
+  # Nothing waits for it; while it is down, boards update on reload.
+  reverb:
+    <<: *defaults
+    image: ghcr.io/${GHCR_OWNER:-cristiangirlea}/task-management-api:${API_TAG:-latest}
+    env_file: .env.prod
+    command: ["php", "artisan", "reverb:start"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/up | grep -q OK"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   web:
     <<: *defaults

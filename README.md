@@ -1,24 +1,25 @@
 # task-management-docker
 
 Development stack for the task management app: one `docker compose up` brings up
-the Laravel API, the Next.js frontend, PostgreSQL, Redis and an nginx front door.
+the Laravel API, the Next.js frontend, PostgreSQL, Redis, Reverb (live board updates)
+and an nginx front door.
 
 ```
-                     ┌──────────────────────────────┐
-  browser ─────────► │  nginx  (host :8080 → :80)   │
-                     └───────┬──────────────┬───────┘
-          /api/*, /mcp, /up  │              │  everything else
-                             ▼              ▼
-                ┌────────────────┐   ┌────────────────────┐
-                │ app            │   │ web                │
-                │ Laravel 13     │   │ Next.js 15 dev     │
-                │ php-fpm :9000  │   │ server :3000       │
-                └───┬────────┬───┘   └────────────────────┘
-                    ▼        ▼
-            ┌──────────┐ ┌────────┐
-            │ postgres │ │ redis  │
-            │ 16       │ │ 7      │
-            └──────────┘ └────────┘
+                     ┌──────────────────────────────────────┐
+  browser ─────────► │  nginx  (host :8080 → :80)           │
+                     └───┬──────────────┬──────────────┬────┘
+     /api/*, /mcp, /up   │       /app/* │              │  everything else
+                         ▼              ▼              ▼
+             ┌────────────────┐ ┌──────────────┐ ┌────────────────┐
+             │ app            │ │ reverb       │ │ web            │
+             │ Laravel 13     ├►│ WebSockets   │ │ Next.js 16 dev │
+             │ php-fpm :9000  │ │ :8080        │ │ server :3000   │
+             └───┬────────┬───┘ └──────────────┘ └────────────────┘
+                 ▼        ▼
+         ┌──────────┐ ┌────────┐
+         │ postgres │ │ redis  │
+         │ 16       │ │ 7      │
+         └──────────┘ └────────┘
 ```
 
 The browser only ever talks to nginx, so the Next.js app calls the API on the
@@ -146,7 +147,7 @@ docker compose down -v                     # stop and wipe database and redis da
 
 `docker-compose.prod.yml` is a separate, production stack: Caddy with automatic HTTPS in
 place of nginx, the published images from GHCR instead of bind-mounted source, Laravel's
-scheduler, Postgres, Redis and a nightly off-site backup job. It runs on one small server (about $13/month).
+scheduler, Reverb, Postgres, Redis and a nightly off-site backup job. It runs on one small server (about $13/month).
 [docs/production.md](docs/production.md) is the runbook: server setup, configuration
 (`.env.prod.example`, `backup.env.example`), Stripe and email, backups and restore drills,
 updates (the **Deploy** workflow) and a local rehearsal.

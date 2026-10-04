@@ -10,9 +10,10 @@ FROM php:8.4-fpm-alpine
 RUN apk add --no-cache bash git unzip
 
 # PHP extensions via https://github.com/mlocati/docker-php-extension-installer,
-# which pulls in the right Alpine build/runtime packages for each one.
+# which pulls in the right Alpine build/runtime packages for each one. pcntl:
+# signal handling for reverb:start.
 COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
-RUN install-php-extensions pdo_pgsql pgsql zip bcmath opcache redis
+RUN install-php-extensions pdo_pgsql pgsql zip bcmath opcache redis pcntl
 
 COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 ENV COMPOSER_ALLOW_SUPERUSER=1
